@@ -1,61 +1,73 @@
 # LaptopScheduler
 
-Durable Python jobs for Windows laptops. Scheduled occurrences, attempts, and outcomes live in SQLite, so restarting Python does not erase unfinished work or replay recorded successes.
+LaptopScheduler is an installable Python scheduling library for Windows. Import it into your application, register your own functions, and schedule them with cron, interval, or date triggers. It uses APScheduler's trigger syntax and adds a durable execution ledger, retries, and catch-up after downtime.
 
-**1.0.0 is prepared for release, not yet published or hardware-accepted.** See [release verification](docs/release.md).
+You supply the task logic; LaptopScheduler handles scheduling and execution. Jobs run one at a time, and the laptop stays awake during execution by default. When Python starts again after a shutdown or interruption, the saved ledger identifies missed work and unfinished attempts.
+
+**Your laptop must be running for jobs to execute.** An optional Windows Task Scheduler helper starts your Python module after you log in. LaptopScheduler does not power on the laptop or wake it from sleep.
 
 ## Install and run
 
-Requires Windows and Python 3.10 or newer. From this checkout:
+Requires **Windows and Python 3.10+**. Install in a virtual environment:
 
 ```powershell
 py -m venv .venv
-.venv\Scripts\python -m pip install .
+.venv\Scripts\python -m pip install laptopscheduler
 ```
 
-Put this in `my_scrapers.py`:
+To install from a source checkout instead, use `.venv\Scripts\python -m pip install .` from the repository directory.
+
+Add this to your application's entry point, using any filename or package structure you prefer:
 
 ```python
 from laptopscheduler import LaptopScheduler
 
 scheduler = LaptopScheduler(
-    app_id="my-scrapers",
+    app_id="my-application",
     timezone="America/Los_Angeles",
 )
 
 @scheduler.cron(
-    id="daily-scrape",
+    id="daily-task",
     hour=9,
     catch_up="latest",
-    requires_network=True,
 )
-def scrape():
-    # Fetch with explicit timeouts; write results idempotently.
-    print("Scrape started")
+def daily_task():
+    # Put your task logic here, or call a function from your application.
+    print("Running the daily task")
 
 if __name__ == "__main__":
     scheduler.run()
 ```
 
-Run `.venv\Scripts\python -m my_scrapers`. `run()` blocks; Ctrl+C requests shutdown. One worker runs synchronous functions sequentially. Return values are discarded.
+Run your application with the Python interpreter where you installed LaptopScheduler. You can execute a script by its path or use `python -m` with your application's module name. There is no required script name or directory layout. Choose your own stable `app_id` and job IDs; they identify the application's saved state and its jobs.
+
+`run()` keeps the scheduler running; Ctrl+C requests shutdown. The example runs daily at 9 a.m. in Los Angeles. With `catch_up="latest"`, it can also run the most recent missed occurrence immediately on startup, including the first launch. Use `catch_up="skip"` if you only want future scheduled times.
+
+Schedules can also use `@scheduler.interval(id="sync", minutes=30)` for recurring intervals, or `@scheduler.date(id="one-off", run_date="2027-03-01 09:00:00")` for a specific date and time. Declare all jobs before calling `run()`.
 
 ## Start after login
 
-Run this once, using the same virtual environment, while the scheduler is stopped:
+Startup registration is optional. Call `install_startup()` once from your own setup code, using the same Python environment as the application and while its scheduler is stopped. No separate setup script or specific filename is required.
+
+For example, if your application's entry point is the importable module `your_package.worker`:
 
 ```python
-from my_scrapers import scheduler
+from laptopscheduler import LaptopScheduler
 
+scheduler = LaptopScheduler(app_id="my-application")  # Same app_id as your application.
 try:
     print(scheduler.install_startup(
-        module="my_scrapers",
-        working_directory=r"C:\Scrapers",
+        module="your_package.worker",  # Replace with your actual module name.
+        working_directory=r"C:\path\to\your\application",  # Replace with its directory.
     ))
 finally:
     scheduler.shutdown()
 ```
 
-The explicit setup call registers `LaptopScheduler-my-scrapers` for the current user's next logon. It uses this interpreter's exact path, `-m my_scrapers`, and the supplied absolute working directory. Keep that environment and module installed at those paths. Registration is idempotent. Different paths/settings or another owner's task cause a conflict; uninstall an owned task before changing its configuration.
+The names and paths above are placeholders. `module` must be the dotted import name that works with `python -m`, without a `.py` extension. For a standalone script, use its filename without `.py` and its containing directory. For a package, use its module path and a working directory from which it can be imported. That module must register your jobs and call `run()` when executed. If you use a custom `database` path, supply the same path in setup code.
+
+This registers `LaptopScheduler-<app_id>` for your next Windows login. It uses this interpreter's exact path, `-m <module>`, and your chosen working directory. Keep that environment and module installed at those paths. Running setup again with the same configuration is safe. Different paths/settings or another owner's task cause a conflict; uninstall an owned task before changing its configuration.
 
 The task runs with normal privileges, ignores duplicate instances, allows battery operation, and has no execution limit. On process failure it retries three times, one minute apart. It has no wake timer or task-wide network/idle condition. `startup_status()` reports native task state and configured paths; native `running` does not establish worker health. `uninstall_startup()` removes only the owned task and retains SQLite data.
 
@@ -70,6 +82,8 @@ Windows must launch Python; Python cannot launch itself after reboot. This helpe
 Construction acquires application and database ownership, initializes the ledger, and recovers abandoned attempts. A second instance owning either identity is rejected. Call `shutdown()` even when using only setup or inspection methods. Each instance has one lifecycle; create a new instance after shutdown. Register the same job IDs on every launch, before `run()`.
 
 `cron()`, `interval()`, and `date()` require `id=` and forward their remaining trigger arguments to the matching [APScheduler 3.x trigger](https://apscheduler.readthedocs.io/en/3.x/userguide.html). Trigger timezone overrides are supported. Decorators return the original function.
+
+The library has its own public API; it is not a drop-in replacement for APScheduler. Use the decorators and methods documented here rather than APScheduler's `add_job()` or `start()` methods.
 
 Shared job options:
 
@@ -107,12 +121,14 @@ Catch-up applies on first registration, within `max_lateness`, as well as after 
 | Policy | Behavior |
 |---|---|
 | `latest` | Queues the newest eligible missed occurrence. Intermediate cron scan results are never published |
-| `skip` | Discards pre-start missed occurrences. While running, ordinary dispatch can be up to 30 seconds late |
+| `skip` | Discards pre-start missed occurrences. While running, dispatch can be up to 30 seconds late, bounded by `max_lateness` |
 | `all` | Replays oldest eligible occurrences first, at most 100 outstanding per job, replenishing as work finishes |
+
+For example, if an hourly job misses 9, 10, and 11 a.m. while the laptop is off and starts again at 11:15: `latest` queues the 11 a.m. run, `all` queues all three in order, and `skip` waits for noon. Missed runs outside `max_lateness` are not replayed.
 
 An interval without `start_date` starts at registration and has no invented historical runs. Its anchor survives restarts. A date without `run_date` also retains its original registration time. Catch-up is reconciled when `run()` starts, using the registered schedules. Manual invocations have separate identities, no lateness expiry, and never advance schedule progress. They bypass pause/overlap suppression but still use prerequisites and retries.
 
-Committed pending work and interrupted attempts survive independently of the catch-up policy. A delayed retry does not block other ready work. Queued work is checked for expiration before execution. `all` intentionally permits its catch-up batch even when that job already has pending work; arriving live occurrences still follow overlap suppression. Explicit manual runs are not limited to 100.
+Committed pending work and interrupted attempts survive independently of the catch-up policy. A delayed retry does not block other ready work. Queued work is checked for expiration before execution. With `all`, multiple accumulated due occurrences form a replay batch even after a short gap between scheduler checks. Replay batches may queue while that job already has pending work; a single live arrival still follows overlap suppression. Explicit manual runs are not limited to 100.
 
 Pausing holds existing queued scheduled work, without interrupting an active call. Resuming keeps that work but does not backfill the paused period. Expiration still applies. Schedule changes take effect prospectively and preserve queued occurrences/history. Queued arguments, priority, retry delays, and expiry remain those captured when queued; execution uses the current registered function and prerequisites. Removing a declaration disables that job without deleting its history or pending work.
 
@@ -133,19 +149,25 @@ Snapshot timestamps are timezone-aware UTC `datetime` values. Optional timestamp
 
 SQLite commits an occurrence and schedule progress together, and an outcome and its event together. Claims increment attempts before invoking user code. Recovery occurs only after exclusive Windows ownership is acquired; there is no lease that could mistake a slow or sleeping live worker for a dead process. Recorded successes stay recorded. Events for terminal runs expire after 90 days by default; pending/running events and compact occurrence rows remain, preserving deduplication and history. The ledger therefore grows with occurrences. Back it up while the scheduler is shut down, or use SQLite's backup API.
 
-Schema version 1 initializes a new database transactionally. Unknown schema versions and unrelated/unversioned databases are rejected without migration. No Repost Bot database migration is provided, and no baseline repository is modified.
+Schema version 1 initializes a new database transactionally. Unknown schema versions and unrelated/unversioned databases are rejected without migration. Use a dedicated database for each application.
 
 ## Delivery guarantee and operational limits
 
-Eligible work can be attempted again after interruption, within its retry budget and lateness limit. External side effects can therefore repeat: a crash after a website write but before the success commit cannot be distinguished from an unfinished call. Use idempotent writes, unique destination keys, or destination-side deduplication. This is not exactly-once execution, nor an unlimited eventual-delivery guarantee.
+Eligible work can be attempted again after interruption, within its retry budget and lateness limit. External side effects can therefore repeat: a crash after writing a result but before recording success cannot be distinguished from an unfinished call. Use idempotent writes, unique destination keys, or destination-side deduplication. This is not exactly-once execution, nor an unlimited eventual-delivery guarantee.
 
-Give scraper HTTP requests, browser navigation, and subprocesses explicit timeouts. A hung Python function cannot be safely killed by this worker. A shutdown timeout leaves the call alive and keeps ownership until its thread exits; Python's non-daemon worker can keep the process alive. If the process is forcibly terminated, the committed running occurrence is recoverable on the next launch. A worker that finishes after the timeout still records its outcome.
+Give HTTP requests, browser navigation, and subprocesses explicit timeouts. A hung Python function cannot be safely killed by this worker. A shutdown timeout leaves the call alive and keeps ownership until its thread exits; Python's non-daemon worker can keep the process alive. If the process is forcibly terminated, the committed running occurrence is recoverable on the next launch. A worker that finishes after the timeout still records its outcome.
 
 Keep-awake runs on the worker thread and restores its previous state after outcome persistence, including failures. It [prevents idle sleep](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setthreadexecutionstate), not explicit sleep or lid-close actions, and does not keep the display on. Wake timers and forced return to sleep are deferred.
 
 Use Windows Credential Manager or your application's secret provider for credentials. Registered arguments and error text are stored unencrypted in the local ledger; avoid embedding credentials or tokens in either. Protect the data directory with normal per-user Windows permissions. User code chooses its own logging; the library does not configure global logging.
 
 Deferred from v1: a CLI, async jobs, concurrent workers, hard execution timeouts, dashboards, and non-Windows runtime support.
+
+## Testing status
+
+Version 1.0.0 passed 73 automated tests on each of Python 3.10–3.14 on Windows, using installed wheels. Tests include actual process-termination recovery and native Task Scheduler registration, conflict handling, and rollback.
+
+Manual checks involving signing out and back in, shutting down and powering on, and sleeping/resuming a physical laptop have not yet been performed. These check the full interaction with Windows and the laptop's power settings. See the [verification record](https://github.com/seaweed8888/laptop-schedueler/blob/main/docs/release.md) for procedures and results.
 
 ## Development
 
@@ -158,4 +180,4 @@ Deferred from v1: a CLI, async jobs, concurrent workers, hard execution timeouts
 .venv\Scripts\python -m twine check dist/*
 ```
 
-Native task tests create uniquely named temporary tasks and remove them in `finally`. Opt in with `$env:LAPTOPSCHEDULER_NATIVE_TESTS='1'`. Windows CI tests Python 3.10–3.14, builds the sdist/wheel, installs the wheel, and runs the suite against the installed package. Hardware acceptance and publishing instructions are in [docs/release.md](docs/release.md).
+Run development commands from a source checkout. Native task tests create uniquely named temporary tasks and remove them in `finally`. Opt in with `$env:LAPTOPSCHEDULER_NATIVE_TESTS='1'`. Windows CI is configured to test Python 3.10–3.14, build the sdist/wheel, and run the suite against the installed package.

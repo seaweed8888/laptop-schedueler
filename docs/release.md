@@ -9,6 +9,7 @@ Local verification runs on Windows. The suite covers:
 - Atomic enqueue/progress and outcome/event writes, duplicate notifications, persistent retry budgets/deadlines, and success deduplication.
 - A real subprocess killed while executing a job, followed by recovery, successful retry, and another restart without replay.
 - First-registration catch-up, all three policies, 100-item batch replenishment, expiry while queued, bounded cron scans, and high-frequency interval arithmetic.
+- Short-gap replay for interval and cron schedules, the 30-second boundary, replenishment through the last replay occurrence, live overlap suppression, and lateness limits shorter than the dispatch grace period.
 - DST fold/gap behavior, stable interval/date anchors, clock changes, pause/resume across restart, prospective declaration changes, and disabled missing jobs.
 - Same-process and cross-process ownership conflicts, SQLite write contention, failure propagation, schema initialization/rejection, and event retention without loss of deduplication.
 - Prerequisite deferral, worker-thread keep-awake cleanup, sequential priority dispatch, and shutdown with a still-running function that retains ownership.
@@ -20,15 +21,15 @@ Verified locally on Windows build 26200, with native task tests enabled. Each en
 
 | Python | Result |
 |---|---|
-| 3.10.22 | 58 passed |
-| 3.11.1 | 58 passed |
-| 3.12.15 | 58 passed |
-| 3.13.16 | 58 passed |
-| 3.14.2 | 58 passed |
+| 3.10.22 | 73 passed |
+| 3.11.1 | 73 passed |
+| 3.12.15 | 73 passed |
+| 3.13.16 | 73 passed |
+| 3.14.2 | 73 passed |
 
 Wheel and sdist builds passed `twine check`. Wheel helper/typing resources and sdist documentation were checked. Ruff lint and formatting checks passed. Native network/AC/idle probes returned boolean results, without assuming a particular connectivity or power state. No temporary native-test or rollback-test tasks remained after the suite.
 
-GitHub CI is configured to repeat this matrix but has not been run remotely in this session. Graphify's code graph was generated and checked: 150 nodes, 332 edges, no dangling endpoints or import cycles. Documentation is not included in that code-only graph.
+GitHub CI is configured to repeat this matrix but has not been run remotely in this session. Graphify's code graph was refreshed and checked: 170 nodes, 353 edges, no dangling endpoints. Documentation is not included in that code-only graph.
 
 ## Laptop acceptance still required
 

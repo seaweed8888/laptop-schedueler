@@ -18,10 +18,10 @@
     "semantic_hash": "2f816ccfa0938fda99ecda1bae9013d0"
   },
   "src/laptopscheduler/scheduler.py": {
-    "mtime": 1793590074.232692,
-    "seen": 1793590245.3660088,
-    "ast_hash": "18798fb24807a5249e6f5c0e3517aa87",
-    "semantic_hash": "18798fb24807a5249e6f5c0e3517aa87"
+    "mtime": 1793593537.7216346,
+    "seen": 1793593586.95513,
+    "ast_hash": "ad1073b13f08f2bdc03a2f19ca76aeba",
+    "semantic_hash": ""
   },
   "src/laptopscheduler/startup.ps1": {
     "mtime": 1793590241.4587145,
@@ -60,15 +60,39 @@
     "semantic_hash": "294279fe12979eff5e0790dae4c57036"
   },
   "tests/test_scheduling.py": {
-    "mtime": 1793590042.666094,
-    "seen": 1793590245.3660088,
-    "ast_hash": "8c2103fbcccdd3a8d96dbd0d963c4f04",
-    "semantic_hash": "8c2103fbcccdd3a8d96dbd0d963c4f04"
+    "mtime": 1793593575.0543492,
+    "seen": 1793593586.95513,
+    "ast_hash": "61a1a9dc213c231d25c27ff7996fa6f1",
+    "semantic_hash": ""
   },
   "tests/test_windows.py": {
     "mtime": 1793590241.46059,
     "seen": 1793590245.3660088,
     "ast_hash": "cba9f8a0748b0792c9c209bf03b32d70",
     "semantic_hash": "cba9f8a0748b0792c9c209bf03b32d70"
+  },
+  ".github/workflows/ci.yml": {
+    "mtime": 1793590009.343137,
+    "seen": 1793593586.95513,
+    "ast_hash": "e024b204babdfb8fd49c3b17a25aca71",
+    "semantic_hash": ""
+  },
+  ".github/workflows/publish.yml": {
+    "mtime": 1793590009.3441522,
+    "seen": 1793593586.95513,
+    "ast_hash": "34ca8e39675e14c8e1f9b66ceeb22c32",
+    "semantic_hash": ""
+  },
+  "README.md": {
+    "mtime": 1793593031.742867,
+    "seen": 1793593586.95513,
+    "ast_hash": "98d8dd8c92a81216785a6ebfae69cb88",
+    "semantic_hash": ""
+  },
+  "docs/release.md": {
+    "mtime": 1793590408.6914544,
+    "seen": 1793593586.95513,
+    "ast_hash": "697dc5e2c08b94a8540452047af31376",
+    "semantic_hash": ""
   }
 }

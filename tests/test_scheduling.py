@@ -263,6 +263,93 @@ def test_sleep_gap_all_replays_whole_window_and_replenishes(make_scheduler, cloc
     assert all(r.outcome == "succeeded" for r in s.history(limit=1000))
 
 
+@pytest.mark.parametrize("trigger", ["interval", "cron"])
+@pytest.mark.parametrize("gap", [20, 30, 31])
+def test_all_replays_accumulated_occurrences_after_short_gap(
+    make_scheduler, clock, trigger, gap
+):
+    s = make_scheduler()
+    options = {"seconds": 1} if trigger == "interval" else {"second": "*"}
+    getattr(s, trigger)(
+        id="job", start_date=as_datetime(clock.now), catch_up="all", **options
+    )(lambda: None)
+    s._prepare(clock.now)
+    s._reconcile(clock.now)
+    assert s._execute_one()
+    first = clock.now
+    clock.advance(gap)
+    s._reconcile(clock.now)
+    assert s.jobs()[0].outstanding == gap
+    for _ in range(gap):
+        assert s._execute_one()
+    s._reconcile(clock.now)
+    assert not s._execute_one()
+    runs = s.history(limit=1000)
+    assert all(run.outcome == "succeeded" for run in runs)
+    assert sorted(run.scheduled_time.timestamp() for run in runs) == [
+        first + offset for offset in range(gap + 1)
+    ]
+
+
+def test_short_gap_replay_preserves_batch_target_until_last_occurrence(
+    make_scheduler, clock
+):
+    s = make_scheduler()
+    s.interval(id="job", seconds=0.1, catch_up="all")(lambda: None)
+    s._prepare(clock.now)
+    s._reconcile(clock.now)
+    assert s._execute_one()
+    clock.advance(20.1)
+    s._reconcile(clock.now)
+    assert s.jobs()[0].outstanding == 100
+    assert s.jobs()[0].reconciliation_target is not None
+    for _ in range(201):
+        assert s._execute_one()
+        s._reconcile(clock.now)
+        assert s.jobs()[0].outstanding <= 100
+    assert not s._execute_one()
+    assert s.jobs()[0].reconciliation_target is None
+    assert len(s.history(limit=1000)) == 202
+    assert all(run.outcome == "succeeded" for run in s.history(limit=1000))
+
+
+@pytest.mark.parametrize("state", ["pending", "running"])
+@pytest.mark.parametrize("lateness", [0, 0.2, 29])
+def test_all_still_skips_single_live_occurrence_when_busy(
+    make_scheduler, clock, state, lateness
+):
+    s = make_scheduler()
+    s.interval(id="job", minutes=1, catch_up="all")(lambda: None)
+    s._prepare(clock.now)
+    s._reconcile(clock.now)
+    with s._store.transaction() as db:
+        db.execute("UPDATE runs SET state=?", (state,))
+    clock.advance(60 + lateness)
+    s._reconcile(clock.now)
+    assert s.history()[0].outcome == "skipped"
+    assert s.jobs()[0].outstanding == 1
+
+
+@pytest.mark.parametrize("trigger", ["interval", "cron"])
+def test_skip_filters_expired_occurrences_before_overlap(
+    make_scheduler, clock, trigger
+):
+    s = make_scheduler()
+    calls = []
+    options = {"seconds": 1} if trigger == "interval" else {"second": "*"}
+    getattr(s, trigger)(id="job", catch_up="skip", max_lateness=2, **options)(
+        lambda: calls.append(1)
+    )
+    s._prepare(clock.now)
+    clock.advance(5)
+    s._reconcile(clock.now)
+    assert all(run.scheduled_time.timestamp() >= clock.now - 2 for run in s.history())
+    assert s._execute_one()
+    assert calls == [1]
+    assert not s._execute_one()
+    assert sum(run.outcome == "succeeded" for run in s.history()) == 1
+
+
 def test_skip_restart_preserves_committed_pending(make_scheduler, clock):
     s = make_scheduler()
     s.interval(id="job", seconds=60, catch_up="skip")(lambda: None)

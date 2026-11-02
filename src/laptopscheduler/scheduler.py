@@ -372,7 +372,11 @@ class LaptopScheduler:
                 cursor = row["cursor"]
                 if cursor is None or cursor > now:
                     continue
-                lower = now - (30 if job.catch_up == "skip" else job.max_lateness)
+                lower = now - (
+                    min(30, job.max_lateness)
+                    if job.catch_up == "skip"
+                    else job.max_lateness
+                )
                 if cursor < lower:
                     cursor = self._next(job.trigger, lower)
                 target = row["scan_target"] if row["scan_target"] is not None else now
@@ -381,6 +385,10 @@ class LaptopScheduler:
                     or cursor is not None
                     and cursor < now - 30
                 )
+                if job.catch_up == "all" and not replay_batch and cursor is not None:
+                    following = self._after(job.trigger, cursor)
+                    # Multiple due occurrences are backlog, even after a short gap.
+                    replay_batch = following is not None and following <= now
                 candidate = row["candidate"]
                 outstanding = self._store.outstanding(job.id)
                 count = 0
