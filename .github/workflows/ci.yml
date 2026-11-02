@@ -39,8 +39,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -c "import laptopscheduler; assert 'site-packages' in laptopscheduler.__file__; print(laptopscheduler.__file__)"
       - run: python -m pytest -q
-      - run: python -m ruff check src tests
-      - run: python -m ruff format --check src tests
+      - run: python -m ruff check src tests tools
+      - run: python -m ruff format --check src tests tools
       - uses: actions/upload-artifact@v4
         if: matrix.python == '3.14'
         with:

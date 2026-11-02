@@ -67,9 +67,38 @@ def test_startup_input_is_json_not_shell_code(make_scheduler, tmp_path, monkeypa
     assert kwargs["creationflags"] == subprocess.CREATE_NO_WINDOW
     payload = json.loads(kwargs["input"])
     assert payload["working_directory"] == str(directory)
-    assert payload["python"] == sys.executable
+    assert payload["python"] == str(Path(sys.executable).with_name("pythonw.exe"))
     with pytest.raises(ValueError, match="module"):
         s.install_startup("example; malicious", directory)
+
+
+@pytest.mark.parametrize("executable", ["python.exe", "pythonw.exe"])
+def test_startup_uses_windowless_python_in_same_environment(
+    tmp_path, monkeypatch, executable
+):
+    windowless = tmp_path / "pythonw.exe"
+    windowless.touch()
+    monkeypatch.setattr(sys, "executable", str(tmp_path / executable))
+    captured = []
+    monkeypatch.setattr(
+        windows,
+        "powershell",
+        lambda payload: (
+            captured.append(payload)
+            or {"registered": True, "task_name": payload["name"]}
+        ),
+    )
+    windows.startup("install", "test", "token", "example", tmp_path)
+    assert captured[0]["python"] == str(windowless)
+
+
+def test_startup_missing_pythonw_does_not_register_task(tmp_path, monkeypatch):
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "python.exe"))
+    monkeypatch.setattr(
+        windows, "powershell", lambda payload: pytest.fail("task changed")
+    )
+    with pytest.raises(FileNotFoundError, match="pythonw.exe"):
+        windows.startup("install", "test", "token", "example", tmp_path)
 
 
 @pytest.mark.integration

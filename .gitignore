@@ -9,4 +9,5 @@ dist/
 *.sqlite3*
 graphify-out/cache/
 graphify-out/.*
+/graphify-out
 

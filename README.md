@@ -1,8 +1,10 @@
 # LaptopScheduler
 
-LaptopScheduler is an installable Python scheduling library for Windows. Import it into your application, register your own functions, and schedule them with cron, interval, or date triggers. It uses APScheduler's trigger syntax and adds a durable execution ledger, retries, and catch-up after downtime.
+Run recurring Python tasks on the Windows laptop you already own, without paying for a hosted server. LaptopScheduler is useful for backups, folder syncing, reports, data imports, file cleanup, and other tasks that can wait until your laptop is available.
 
-You supply the task logic; LaptopScheduler handles scheduling and execution. Jobs run one at a time, and the laptop stays awake during execution by default. When Python starts again after a shutdown or interruption, the saved ledger identifies missed work and unfinished attempts.
+Your laptop does not need to stay on around the clock. LaptopScheduler saves each scheduled run's progress so that, when your program starts again, it can handle missed work according to your chosen catch-up policy and retry interrupted jobs within their retry limits.
+
+You write the task functions; the library handles scheduling, retries, and execution history. Import it into your Python application and schedule jobs with APScheduler-style cron, interval, or date triggers. Jobs run one at a time, with idle sleep prevented during execution by default.
 
 **Your laptop must be running for jobs to execute.** An optional Windows Task Scheduler helper starts your Python module after you log in. LaptopScheduler does not power on the laptop or wake it from sleep.
 
@@ -48,7 +50,11 @@ Schedules can also use `@scheduler.interval(id="sync", minutes=30)` for recurrin
 
 ## Start after login
 
-Startup registration is optional. Call `install_startup()` once from your own setup code, using the same Python environment as the application and while its scheduler is stopped. No separate setup script or specific filename is required.
+Startup registration is optional. Choose either the Python helper below or [manual Windows Task Scheduler setup](#manual-windows-task-scheduler-setup). You can also start your application yourself. Neither the startup helper nor the hardware test script is required to use the library; your scheduled functions still run in Python.
+
+### Optional Python startup helper
+
+Call `install_startup()` once from your own setup code, using the same Python environment as the application and while its scheduler is stopped. No separate setup script or specific filename is required.
 
 For example, if your application's entry point is the importable module `your_package.worker`:
 
@@ -67,11 +73,40 @@ finally:
 
 The names and paths above are placeholders. `module` must be the dotted import name that works with `python -m`, without a `.py` extension. For a standalone script, use its filename without `.py` and its containing directory. For a package, use its module path and a working directory from which it can be imported. That module must register your jobs and call `run()` when executed. If you use a custom `database` path, supply the same path in setup code.
 
-This registers `LaptopScheduler-<app_id>` for your next Windows login. It uses this interpreter's exact path, `-m <module>`, and your chosen working directory. Keep that environment and module installed at those paths. Running setup again with the same configuration is safe. Different paths/settings or another owner's task cause a conflict; uninstall an owned task before changing its configuration.
+This registers `LaptopScheduler-<app_id>` for your next Windows login. It uses the `pythonw.exe` beside your current Python executable, `-m <module>`, and your chosen working directory. This keeps the same virtual environment and starts without a terminal window. Registration fails if that environment has no `pythonw.exe`. Keep that environment and module installed at those paths. Running setup again with the same configuration is safe. Different paths/settings or another owner's task cause a conflict; uninstall an owned task before changing its configuration, including upgrading an older task that used `python.exe`.
+
+Startup jobs have no interactive console. Configure file logging in your application for diagnostics; console output and interactive input are unavailable. The hardware test helper writes its worker errors to `worker.log` in its evidence directory.
 
 The task runs with normal privileges, ignores duplicate instances, allows battery operation, and has no execution limit. On process failure it retries three times, one minute apart. It has no wake timer or task-wide network/idle condition. `startup_status()` reports native task state and configured paths; native `running` does not establish worker health. `uninstall_startup()` removes only the owned task and retains SQLite data.
 
 Windows must launch Python; Python cannot launch itself after reboot. This helper uses a [current-user logon trigger](https://learn.microsoft.com/en-us/windows/win32/taskschd/starting-an-executable-when-a-user-logs-on). It does not start before login or wake a powered-off laptop.
+
+### Manual Windows Task Scheduler setup
+
+This performs the same startup role without calling `install_startup()`. Your application must still declare its jobs and call `scheduler.run()`. Windows launches that application once at login; LaptopScheduler handles the individual job schedules, retries, and catch-up.
+
+1. Open **Task Scheduler** from the Windows Start menu and select **Create Task**.
+2. On **General**, choose any descriptive name, select your current Windows user, choose **Run only when user is logged on**, and leave **Run with highest privileges** unchecked.
+3. On **Triggers**, select **New → At log on → Specific user**, choose your account, and leave the trigger enabled. Do not add a repeating trigger for each Python job.
+4. On **Actions**, select **New → Start a program** and fill in these fields using your actual paths:
+
+   | Field | Example | Purpose |
+   |---|---|---|
+   | Program/script | `C:\path\to\application\.venv\Scripts\pythonw.exe` | Starts the Python environment containing LaptopScheduler without a terminal window |
+   | Add arguments | `-m your_package.worker` | Runs your application's importable module |
+   | Start in | `C:\path\to\application` | Sets the directory from which the module and relative files resolve |
+
+   The paths and module name are placeholders, not required names. Use **Browse** to choose the interpreter. Enter the **Start in** directory without surrounding quotes. For a standalone script, you can instead set **Add arguments** to its full quoted path, such as `"C:\My Projects\nightly tasks.py"`; no particular script filename is required. Use the same stable `app_id` and database location as your normal application.
+
+   Choose `python.exe` instead of `pythonw.exe` if you want a visible console for debugging. With `pythonw.exe`, configure application logging to a file because there is no interactive console. Keep the environment and application at the registered paths.
+
+5. On **Conditions**, clear the idle and network requirements, **Start the task only if the computer is on AC power**, **Stop if the computer switches to battery power**, and **Wake the computer to run this task**. Clear the battery-stop option before disabling its parent AC option if Windows greys it out. Use LaptopScheduler's per-job prerequisites when only particular jobs need network, AC, or idle time.
+6. On **Settings**, enable **Allow task to be run on demand**. Set **If the task fails, restart every** to **1 minute**, with **3** restart attempts. Disable **Stop the task if it runs longer than** and automatic deletion of the task. For **If the task is already running**, choose **Do not start a new instance**.
+7. Save the task. If you want to check it immediately, first stop any manually running copy of the same application, then right-click the task and choose **Run**. Check your application's logs or job history; Task Scheduler's **Running** state alone does not prove jobs are succeeding.
+
+These settings correspond to Microsoft's [logon trigger](https://learn.microsoft.com/en-us/windows/win32/taskschd/starting-an-executable-when-a-user-logs-on) and [task settings](https://learn.microsoft.com/en-us/windows/win32/taskschd/tasksettings). The task starts after login, not while the laptop is powered off or signed out.
+
+Use one startup registration per application. If switching from the Python helper, stop the application and call `uninstall_startup()` with the same `app_id` and database before creating the manual task. This retains your ledger. Manually created tasks are managed in Task Scheduler; `startup_status()` and `uninstall_startup()` do not adopt them. To remove manual startup, disable or delete your chosen task there. Removing a registration does not by itself stop an already running Python process.
 
 ## API
 
@@ -167,15 +202,19 @@ Deferred from v1: a CLI, async jobs, concurrent workers, hard execution timeouts
 
 Version 1.0.0 passed 73 automated tests on each of Python 3.10–3.14 on Windows, using installed wheels. Tests include actual process-termination recovery and native Task Scheduler registration, conflict handling, and rollback.
 
+The current tree passed 82 tests on Python 3.11. The Windows/runtime tests also passed on Python 3.10 and 3.14, including launching a registered task with no console window. Saved manual reports confirm crash recovery, unchanged earlier successes, and the three catch-up policies across a short restart gap.
+
 Manual checks involving signing out and back in, shutting down and powering on, and sleeping/resuming a physical laptop have not yet been performed. These check the full interaction with Windows and the laptop's power settings. See the [verification record](https://github.com/seaweed8888/laptop-schedueler/blob/main/docs/release.md) for procedures and results.
+
+The [manual hardware test helper](https://github.com/seaweed8888/laptop-schedueler/blob/main/docs/hardware-testing.md) creates an isolated test app, saves evidence across restarts, and checks that old successes remain unchanged. It also exercises crash recovery, prerequisites, and a bounded keep-awake job. Run it from a source checkout; it is not part of the library's public API.
 
 ## Development
 
 ```powershell
 .venv\Scripts\python -m pip install -e '.[dev]'
 .venv\Scripts\python -m pytest
-.venv\Scripts\python -m ruff check src tests
-.venv\Scripts\python -m ruff format --check src tests
+.venv\Scripts\python -m ruff check src tests tools
+.venv\Scripts\python -m ruff format --check src tests tools
 .venv\Scripts\python -m build
 .venv\Scripts\python -m twine check dist/*
 ```

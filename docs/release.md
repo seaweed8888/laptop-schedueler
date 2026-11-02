@@ -33,6 +33,10 @@ GitHub CI is configured to repeat this matrix but has not been run remotely in t
 
 ## Laptop acceptance still required
 
+Use the [manual test helper and step-by-step instructions](hardware-testing.md) to collect evidence. The helper does not automatically certify hardware behavior or change the statuses below.
+
+The current tree passed the expanded 82-test suite on Python 3.11 with native tests enabled. The 16 Windows/runtime tests also passed on Python 3.10 and 3.14. Native verification launches a registered task and checks that `pythonw.exe` has no console window and uses the intended Python environment. Helper coverage includes background startup, deliberate process termination/recovery, worker error logging without a console, a bounded hold job, and removal with both a running and an already-stopped worker. These checks do not establish physical logon or sleep behavior. The earlier five-version results above refer to the original 73-test suite.
+
 Use a disposable app ID and a local test database. Give the test job a short interval and write an idempotent destination record so duplicate effects can be observed. Save the IDs and UTC timestamps of several successful occurrences before each step.
 
 | Check | Procedure and pass condition | Status |
@@ -45,6 +49,18 @@ Use a disposable app ID and a local test database. Give the test job a short int
 | Old success stays terminal | After each scenario, verify earlier successful `(job_id, scheduled_time)` rows still have their original IDs/attempt counts and were not executed again | Automated restart/termination tests pass; repeat after hardware scenarios |
 
 Record the Windows build, hardware/power settings, Python version, exact release commit, and observed run IDs when completing this table. Explicit sleep and lid closure may still suspend the laptop by design. Do not use production credentials or destinations for crash tests.
+
+### Saved report review
+
+Three saved helper reports from 2026-11-02, 06:49–06:53 UTC, were reviewed: `report-1793602151962854400.json`, `report-1793602182707894700.json`, and `report-1793602385598704800.json`. They establish:
+
+- Baseline execution succeeded for all three catch-up policies.
+- The deliberately interrupted run succeeded on attempt 2, retaining its original run ID.
+- All 65 successes in the crash checkpoint remained unchanged in both subsequent reports.
+- Across a second recorded restart gap of 17.66 seconds, `all` completed nine missed occurrences, `latest` completed the newest one, and `skip` completed none from that gap.
+- No failed or expired occurrences were present. Two skipped live occurrences were recorded, consistent with the default overlap policy; these are not job failures.
+
+The reports do not identify the physical cause of the second restart and contain no sleep, long powered-off, keep-awake, or prerequisite-test evidence. They support confidence in the core execution and recovery behavior without certifying those hardware scenarios. No additional hardware checks were requested after this review.
 
 ## Build and publish
 

@@ -171,8 +171,13 @@ def startup(operation, app_id, token, module=None, working_directory=None):
         directory = Path(working_directory).resolve(strict=True)
         if not directory.is_dir():
             raise ValueError("working_directory must be a directory")
+        executable = Path(sys.executable).with_name("pythonw.exe")
+        if not executable.is_file():
+            raise FileNotFoundError(
+                f"Console-free startup requires pythonw.exe in this Python environment: {executable}"
+            )
         payload.update(
-            python=sys.executable,
+            python=str(executable),
             arguments="-m " + module,
             working_directory=str(directory),
         )

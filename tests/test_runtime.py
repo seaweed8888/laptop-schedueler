@@ -1,3 +1,4 @@
+import json
 import os
 import sqlite3
 import subprocess
@@ -188,15 +189,29 @@ def test_native_task_registration_idempotency_conflict_unicode_and_removal(tmp_p
     app = "native-test-" + uuid.uuid4().hex
     directory = tmp_path / "spaces 'quotes' $dollar & café 日本"
     directory.mkdir()
+    (directory / "check_startup.py").write_text(
+        """
+import ctypes, json, sys
+from pathlib import Path
+import laptopscheduler
+kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+kernel.GetConsoleWindow.restype = ctypes.c_void_p
+Path("launched.json").write_text(json.dumps({
+    "console": kernel.GetConsoleWindow(), "prefix": sys.prefix,
+    "python": sys.executable, "package": laptopscheduler.__file__,
+}))
+""",
+        encoding="utf-8",
+    )
     s = LaptopScheduler(app, database=tmp_path / "native.sqlite3")
     try:
         assert not s.startup_status().registered
-        status = s.install_startup("example.module", directory)
+        status = s.install_startup("check_startup", directory)
         assert status.registered and status.owned
-        assert Path(status.python) == Path(sys.executable)
+        assert Path(status.python) == Path(sys.executable).with_name("pythonw.exe")
         assert Path(status.working_directory) == directory
-        assert status.arguments == "-m example.module"
-        assert s.install_startup("example.module", directory) == status
+        assert status.arguments == "-m check_startup"
+        assert s.install_startup("check_startup", directory) == status
         with pytest.raises(RuntimeError, match="Conflicting"):
             s.install_startup("different.module", directory)
         from laptopscheduler.windows import startup
@@ -204,6 +219,32 @@ def test_native_task_registration_idempotency_conflict_unicode_and_removal(tmp_p
         with pytest.raises(RuntimeError, match="another owner"):
             startup("uninstall", app, "not-the-owner")
         assert s.startup_status().registered
+        subprocess.run(
+            [
+                str(
+                    Path(os.environ["SystemRoot"])
+                    / "System32/WindowsPowerShell/v1.0/powershell.exe"
+                ),
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "$ErrorActionPreference='Stop'; $name=[Console]::In.ReadToEnd() | ConvertFrom-Json; "
+                "$service=New-Object -ComObject Schedule.Service; $service.Connect(); "
+                "$null=$service.GetFolder('\\').GetTask($name).Run($null)",
+            ],
+            input=json.dumps(status.task_name),
+            text=True,
+            capture_output=True,
+            check=True,
+            timeout=15,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        wait_until(lambda: (directory / "launched.json").exists())
+        wait_until(lambda: s.startup_status().state == "ready")
+        launched = json.loads((directory / "launched.json").read_text())
+        assert launched["console"] is None
+        assert Path(launched["prefix"]) == Path(sys.prefix)
+        assert Path(launched["python"]) == Path(status.python)
     finally:
         try:
             s.uninstall_startup()
