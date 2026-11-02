@@ -1,5 +1,7 @@
 # LaptopScheduler
 
+Download here (https://pypi.org/project/laptopscheduler/)
+
 Run recurring Python tasks on the Windows laptop you already own, without paying for a hosted server. LaptopScheduler is useful for backups, folder syncing, reports, data imports, file cleanup, and other tasks that can wait until your laptop is available.
 
 Your laptop does not need to stay on around the clock. LaptopScheduler saves each scheduled run's progress so that, when your program starts again, it can handle missed work according to your chosen catch-up policy and retry interrupted jobs within their retry limits.
