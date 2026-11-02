@@ -1,0 +1,49 @@
+name: Windows package checks
+
+on:
+  push:
+  pull_request:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.10', '3.11', '3.12', '3.13', '3.14']
+    env:
+      LAPTOPSCHEDULER_NATIVE_TESTS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install build twine pytest ruff
+      - run: python -m build
+      - run: python -m twine check dist/*
+      - name: Install the wheel, not the source checkout
+        shell: pwsh
+        run: |
+          $wheel = (Get-ChildItem -LiteralPath dist -Filter '*.whl').FullName
+          python -m pip install $wheel
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -c "import laptopscheduler; assert 'site-packages' in laptopscheduler.__file__; print(laptopscheduler.__file__)"
+      - run: python -m pytest -q
+      - run: python -m ruff check src tests
+      - run: python -m ruff format --check src tests
+      - uses: actions/upload-artifact@v4
+        if: matrix.python == '3.14'
+        with:
+          name: distributions
+          path: dist/*
+

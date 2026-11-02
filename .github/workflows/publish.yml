@@ -1,0 +1,52 @@
+name: Publish accepted release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Reviewed release tag, such as v1.0.0'
+        required: true
+        type: string
+      hardware_validated:
+        description: 'Laptop acceptance in docs/release.md is complete for this tag'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    if: inputs.hardware_validated && vars.PYPI_OWNERSHIP_VERIFIED == 'true'
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ inputs.release_tag }}
+
+  publish:
+    needs: checks
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/laptopscheduler/
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: distributions
+          path: dist
+      - name: Check artifact version against requested tag
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          python - <<'PY'
+          import email, os, pathlib, zipfile
+          wheel, = pathlib.Path('dist').glob('*.whl')
+          with zipfile.ZipFile(wheel) as archive:
+              metadata, = [n for n in archive.namelist() if n.endswith('.dist-info/METADATA')]
+              version = email.message_from_bytes(archive.read(metadata))['Version']
+          assert os.environ['RELEASE_TAG'] == 'v' + version
+          PY
+      - uses: pypa/gh-action-pypi-publish@release/v1

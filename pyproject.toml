@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "laptopscheduler"
+version = "1.0.0"
+description = "Durable scheduled Python jobs for Windows laptops"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+dependencies = ["APScheduler>=3.11.3,<4", "tzlocal>=3", "tzdata"]
+classifiers = [
+  "Operating System :: Microsoft :: Windows",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "build", "twine", "ruff"]
+
+[project.urls]
+Repository = "https://github.com/seaweed8888/laptop-schedueler"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+laptopscheduler = ["*.ps1", "py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["integration: creates temporary native Windows tasks (opt-in)"]
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+
